@@ -83,6 +83,8 @@ yelp_storage_search (YelpStorage   *storage,
 
     if (iface->search)
         return (*iface->search) (storage, doc_uri, text);
+    else if (iface->quick)
+        return (*iface->quick) (storage, doc_uri, text);
     else
         return NULL;
 }

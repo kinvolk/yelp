@@ -43,6 +43,9 @@ static void        yelp_sqlite_storage_update         (YelpStorage      *storage
                                                        const gchar      *desc,
                                                        const gchar      *icon,
                                                        const gchar      *text);
+static GVariant *  yelp_sqlite_storage_quick_search   (YelpStorage      *storage,
+                                                       const gchar      *doc_uri,
+                                                       const gchar      *text);
 static GVariant *  yelp_sqlite_storage_search         (YelpStorage      *storage,
                                                        const gchar      *doc_uri,
                                                        const gchar      *text);
@@ -153,6 +156,7 @@ static void
 yelp_sqlite_storage_iface_init (YelpStorageInterface *iface)
 {
     iface->update = yelp_sqlite_storage_update;
+    iface->quick_search = yelp_sqlite_storage_quick_search;
     iface->search = yelp_sqlite_storage_search;
     iface->get_root_title = yelp_sqlite_storage_get_root_title;
     iface->set_root_title = yelp_sqlite_storage_set_root_title;
@@ -249,6 +253,45 @@ yelp_sqlite_storage_update (YelpStorage   *storage,
 }
 
 static GVariant *
+yelp_sqlite_storage_quick_search (YelpStorage   *storage,
+                                  const gchar   *doc_uri,
+                                  const gchar   *text)
+{
+    sqlite3_stmt *stmt = NULL;
+    gchar *search_text = g_strdup_printf("%%%s%%", text);
+    GVariantBuilder builder;
+    GVariant *ret;
+    YelpSqliteStoragePrivate *priv = GET_PRIV (storage);
+
+    g_mutex_lock (&priv->mutex);
+
+    sqlite3_prepare_v2 (priv->db,
+                        "select full_uri, title, desc, icon from pages where doc_uri = ? and lang = ? and (title like ? or desc like ?);",
+                        -1, &stmt, NULL);
+    g_print("hellllllo????");
+    sqlite3_bind_text (stmt, 1, doc_uri, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text (stmt, 2, g_get_language_names()[0], -1, SQLITE_STATIC);
+    sqlite3_bind_text (stmt, 3, search_text, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text (stmt, 4, search_text, -1, SQLITE_TRANSIENT);
+    g_free (search_text);
+
+    g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(ssss)"));
+    while (sqlite3_step (stmt) == SQLITE_ROW) {
+        g_variant_builder_add (&builder, "(ssss)",
+                               sqlite3_column_text (stmt, 0),
+                               sqlite3_column_text (stmt, 1),
+                               sqlite3_column_text (stmt, 2),
+                               sqlite3_column_text (stmt, 3));
+    }
+    sqlite3_finalize (stmt);
+    ret = g_variant_new ("a(ssss)", &builder);
+
+    g_mutex_unlock (&priv->mutex);
+
+    return ret;
+}
+
+static GVariant *
 yelp_sqlite_storage_search (YelpStorage   *storage,
                             const gchar   *doc_uri,
                             const gchar   *text)
@@ -261,9 +304,9 @@ yelp_sqlite_storage_search (YelpStorage   *storage,
     g_mutex_lock (&priv->mutex);
 
     sqlite3_prepare_v2 (priv->db,
-                        "select full_uri, title, desc, icon from pages where"
-                        " doc_uri = ? and lang = ? and body match ?;",
+                        "select full_uri, title, desc, icon from pages where doc_uri = ? and lang = ? and body match ?;",
                         -1, &stmt, NULL);
+
     sqlite3_bind_text (stmt, 1, doc_uri, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text (stmt, 2, g_get_language_names()[0], -1, SQLITE_STATIC);
     sqlite3_bind_text (stmt, 3, text, -1, SQLITE_TRANSIENT);
